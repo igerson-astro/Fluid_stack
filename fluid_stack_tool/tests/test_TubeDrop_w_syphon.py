@@ -88,6 +88,12 @@ tube5 = circuit.tube_length(
     name = "tube_5"
 )
 
+syphon = circuit.syphon(
+    syphon_flowrate = 0,
+    syphon_area = 0.75,
+    name = "RTT_intersection"
+)
+
 bend3 = circuit.bend_90(
     BendRadius=.0762,
     ID = .022098,
@@ -99,7 +105,28 @@ tank_return_valve = circuit.orifice(
     CdA = .000304024,
     Apt_Area = area
 )
-print(circuit)
+
+
+summary = circuit.summary()
+
+for key, value in summary.items():
+    if key == "elements":
+        continue
+    if key == "fluid":
+        print("fluid:")
+        for subkey, subvalue in value.items():
+            if subkey in {"state", "properties"}:
+                continue
+            print(f"  {subkey:18s}: {subvalue}")
+    else:
+        print(f"{key:20s}: {value}")
+
 print(" ")
 print(" ")
-print(circuit.elements)
+for i, element in enumerate(circuit.elements):
+    print(
+          f"{i:02d}. "
+          f"type={element.element_type:12s} "
+          f"name={str(element.name):18s} "
+          f"dP={element.pressure_drop:12.3f} Pa"
+      )

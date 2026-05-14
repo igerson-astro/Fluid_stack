@@ -7,6 +7,7 @@ from .elements import (
     Orifice,
     Pump,
     TubeLength,
+    syphon,
 )
 
 __all__ = [
@@ -18,4 +19,5 @@ __all__ = [
     "Orifice",
     "Pump",
     "TubeLength",
+    "syphon",
 ]

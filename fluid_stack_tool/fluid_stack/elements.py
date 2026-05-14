@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any
 from scipy.optimize import fsolve
 import math
+import warnings
 from .core import CircuitElement
 
 
@@ -214,4 +215,43 @@ class Bend45(CircuitElement):
         self.f = _solve_friction_factor(self.eps, self.ID, self.circuit.fluid.reynolds_number)
         alpha = self.calc_alpha()
         K = 0.0175 * alpha * self.f * 45 * self.r_D
+        return K
+
+class syphon(CircuitElement):
+    """ A T shaped intersection such that fluid is removed from flow being tracked"""
+
+    element_type = "syphon"
+
+    def __init__(
+            self,
+            *,
+            syphon_flowrate:float,
+            syphon_area:float,
+            **kwargs: Any
+    ) -> None:
+        super().__init__(**kwargs)
+        pressure = self.circuit.static_pressure
+        temperature = self.circuit.fluid.temperature
+        state = self.circuit.fluid.calculate_state(
+            pressure=pressure,
+            temperature=temperature
+        )
+        density = state["density"]
+        self.Vs = syphon_flowrate/(density*syphon_area)
+        self.V1 = self.circuit.mdot/(density*self.circuit.flow_area)
+
+    def calc_K(self) -> float:
+        V_ratio = self.Vs/self.V1 
+
+        if 0<=V_ratio and V_ratio <= 0.22:
+            K = 1.55*(0.22-V_ratio)**2-0.03
+        elif 0.22<=V_ratio and V_ratio <= 1:
+            K = 0.65 *(V_ratio-0.22)**2 - 0.03
+        else:
+            warnings.warn(
+                f"syphon velocity ratio {V_ratio} is outside the supported range [0, 1]; returning K=0",
+                RuntimeWarning,
+                stacklevel=2,
+            )
+            K=0
         return K

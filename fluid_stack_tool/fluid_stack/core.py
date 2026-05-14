@@ -201,10 +201,11 @@ class CircuitElement:
         element_id: str | None = None,
         **parameters: Any,
     ) -> None:
+        existing_circuit = getattr(self, "circuit", None)
         self.name = name
         self.element_id = element_id
         self.parameters = dict(parameters)
-        self.circuit: Circuit | None = None
+        self.circuit: Circuit | None = existing_circuit
         self.pressure_drop: float | None = None
 
     def calculate_pressure_drop(self, dynamic_pressure: float | None = None) -> float:
@@ -462,6 +463,40 @@ class Circuit:
                 **kwargs,
             )
         )
+
+    def syphon(
+        self,
+        *,
+        syphon_flowrate: float,
+        syphon_area: float,
+        **kwargs: Any,
+    ):
+        """Add a siphon branch that removes flow from the tracked circuit."""
+        from .elements import syphon
+
+        if self.mdot is None:
+            raise ValueError("Circuit mdot is required to add a syphon.")
+        if self.flow_area is None:
+            raise ValueError("Circuit flow_area is required to add a syphon.")
+        if syphon_area <= 0:
+            raise ValueError("syphon_area must be greater than zero.")
+        if syphon_flowrate < 0:
+            raise ValueError("syphon_flowrate cannot be negative.")
+        if syphon_flowrate > self.mdot:
+            raise ValueError("syphon_flowrate cannot exceed circuit mdot.")
+
+        element = syphon.__new__(syphon)
+        element.circuit = self
+        syphon.__init__(
+            element,
+            syphon_flowrate=syphon_flowrate,
+            syphon_area=syphon_area,
+            **kwargs,
+        )
+        element = self._add_element(element)
+        self.mdot -= syphon_flowrate
+        self._update_flow_kinematics(self.flow_area)
+        return element
 
     def summary(self) -> dict[str, Any]:
         """Return a serializable summary of the circuit."""
