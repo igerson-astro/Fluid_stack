@@ -270,13 +270,13 @@ class Circuit:
             raise TypeError("Circuit requires a Fluid instance.")
 
         self.fluid = fluid
+        if self.fluid.pressure is None:
+            raise ValueError("Circuit requires fluid.pressure to be set before initialization.")
         # static_pressure is the running line pressure used for REFPROP state
-        # updates after each element is added.
-        self.static_pressure = (
-            float(static_pressure)
-            if static_pressure is not None
-            else self.fluid.pressure
-        )
+        # updates after each element is added. The initial value comes from the
+        # fluid object so there is a single source of truth at startup. Keep
+        # the static_pressure argument for backward compatibility, but ignore it.
+        self.static_pressure = float(self.fluid.pressure)
         # Resolve the initial density from the current fluid state before any
         # circuit elements are added.
         self.density = 0.0

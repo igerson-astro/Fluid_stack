@@ -19,7 +19,6 @@ JP8 = Fluid(
 circuit = Circuit(
     fluid = JP8,
     mdot = 2,
-    static_pressure = pressure
 )
 
 LP_pump = circuit.pump(

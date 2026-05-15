@@ -230,7 +230,7 @@ class syphon(CircuitElement):
             **kwargs: Any
     ) -> None:
         super().__init__(**kwargs)
-        pressure = self.circuit.static_pressure
+        pressure = self.circuit.fluid.pressure
         temperature = self.circuit.fluid.temperature
         state = self.circuit.fluid.calculate_state(
             pressure=pressure,

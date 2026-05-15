@@ -6,17 +6,17 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from fluid_stack import Fluid, Circuit
 
-#pressure = .101e6
+
+# Shared geometric inputs for the fixed line hardware.
 area = .0003835
 eps = .015e-3
 
-def iterator(fluid,tank_pressure,pump_dp):
-
-    
+def iterator(fluid,pump_dp):
+    # Build one full pass through the RTT return line using the current fluid
+    # state as the circuit inlet condition.
     circuit = Circuit(
         fluid = fluid,
         mdot = 2,
-        static_pressure = tank_pressure
     )
 
     LP_pump = circuit.pump(
@@ -106,27 +106,33 @@ def iterator(fluid,tank_pressure,pump_dp):
     return circuit
 
 def main():
+    # Bisection bounds for the pump head required to return to tank pressure.
     high =1e7
     low = 0
-    tank_pressure =.7e6
+    tank_pressure =.101e6
     exit_pressure = 1
     i = 0
     pump_dp_history = []
 
-    JP8 = Fluid(
+    while abs(exit_pressure-tank_pressure)/tank_pressure > 1e-6 and i < 50:
+        # Circuit now takes its starting pressure from fluid.pressure, and the
+        # circuit march updates that pressure in place. Rebuild the fluid each
+        # iteration so every trial starts from the same tank condition.
+        JP8 = Fluid(
         name = "JP8.mix",
         temperature = 323.15,
         pressure = tank_pressure
-    )
-    
-    while abs(exit_pressure-tank_pressure)/tank_pressure > 1e-5 and i < 50:
-        if i == 4:
-            print(i)
+        )
+
+        # Midpoint trial for the current bisection bracket.
         pump_dP = (high+low)/2
         pump_dp_history.append(pump_dP)
-        circuit = iterator(JP8,tank_pressure,pump_dP)
+        circuit = iterator(JP8,pump_dP)
+        # The outlet static pressure is the value we are matching to the tank.
         exit_pressure = circuit.static_pressure
 
+        # Standard bisection update: if outlet is too low, increase pump dP;
+        # if outlet is too high, decrease it.
         if exit_pressure < tank_pressure:
             low = pump_dP
         elif exit_pressure > tank_pressure:
@@ -144,12 +150,18 @@ def main():
 
     
 
+    # Pull a serializable snapshot of the final converged circuit state.
     summary = circuit.summary()
 
+    # Print the circuit-level summary first. Skip the element list here because
+    # it is easier to read as a separate per-element table below.
     for key, value in summary.items():
         if key == "elements":
             continue
         if key == "fluid":
+            # The fluid entry is itself a nested dictionary. Print the high-level
+            # fields and skip the raw state/properties sub-dicts to keep the
+            # report compact.
             print("fluid:")
             for subkey, subvalue in value.items():
                 if subkey in {"state", "properties"}:
@@ -160,6 +172,8 @@ def main():
 
     print(" ")
     print(" ")
+    # Print each circuit element in flow order so the stored dP values can be
+    # compared directly against the circuit total.
     for i, element in enumerate(circuit.elements):
         print(
             f"{i:02d}. "
@@ -168,9 +182,10 @@ def main():
             f"dP={element.pressure_drop:12.3f} Pa"
         )
 
+    # Plot the bisection trial values to visualize convergence.
     plt.plot(range(1, len(pump_dp_history) + 1), pump_dp_history)
     plt.xlabel("Iteration")
     plt.ylabel("pump_dP")
-    #plt.show()
+    plt.show()
 
 main()
