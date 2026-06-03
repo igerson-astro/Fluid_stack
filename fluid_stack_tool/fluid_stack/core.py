@@ -464,39 +464,98 @@ class Circuit:
             )
         )
 
-    def syphon(
+    def _add_syphon(
+        self,
+        syphon_cls: type[CircuitElement],
+        *,
+        remove_flow: bool,
+        flowrate_to_remove: float = 0.0,
+        **kwargs: Any,
+    ):
+        if self.mdot is None:
+            raise ValueError("Circuit mdot is required to add a syphon.")
+        if self.flow_area is None:
+            raise ValueError("Circuit flow_area is required to add a syphon.")
+        if flowrate_to_remove < 0:
+            raise ValueError("flowrate_to_remove cannot be negative.")
+        if flowrate_to_remove > self.mdot:
+            raise ValueError("flowrate_to_remove cannot exceed circuit mdot.")
+
+        element = syphon_cls.__new__(syphon_cls)
+        element.circuit = self
+        syphon_cls.__init__(element, **kwargs)
+        element = self._add_element(element)
+        if remove_flow:
+            self.mdot -= flowrate_to_remove
+            self._update_flow_kinematics(self.flow_area)
+        return element
+
+    def syphon_main(
         self,
         *,
         syphon_flowrate: float,
         syphon_area: float,
         **kwargs: Any,
     ):
-        """Add a siphon branch that removes flow from the tracked circuit."""
-        from .elements import syphon
+        """Add a main-line syphon tee that removes flow from the tracked circuit."""
+        from .elements import syphon_main
 
-        if self.mdot is None:
-            raise ValueError("Circuit mdot is required to add a syphon.")
-        if self.flow_area is None:
-            raise ValueError("Circuit flow_area is required to add a syphon.")
         if syphon_area <= 0:
             raise ValueError("syphon_area must be greater than zero.")
         if syphon_flowrate < 0:
             raise ValueError("syphon_flowrate cannot be negative.")
-        if syphon_flowrate > self.mdot:
-            raise ValueError("syphon_flowrate cannot exceed circuit mdot.")
 
-        element = syphon.__new__(syphon)
-        element.circuit = self
-        syphon.__init__(
-            element,
+        return self._add_syphon(
+            syphon_main,
+            remove_flow=True,
+            flowrate_to_remove=syphon_flowrate,
             syphon_flowrate=syphon_flowrate,
             syphon_area=syphon_area,
             **kwargs,
         )
-        element = self._add_element(element)
-        self.mdot -= syphon_flowrate
-        self._update_flow_kinematics(self.flow_area)
-        return element
+
+    def syphon_branch(
+        self,
+        *,
+        initial_flowrate: float,
+        branch_flowrate: float,
+        main_area: float,
+        branch_radius: float,
+        branch_ID: float,
+        **kwargs: Any,
+    ):
+        """Add the branch-side syphon tee loss while tracking diverted flow."""
+        from .elements import syphon_branch
+
+        if initial_flowrate < 0:
+            raise ValueError("initial_flowrate cannot be negative.")
+        if branch_flowrate < 0:
+            raise ValueError("branch_flowrate cannot be negative.")
+        if main_area <= 0:
+            raise ValueError("main_area must be greater than zero.")
+        if branch_ID <= 0:
+            raise ValueError("branch_ID must be greater than zero.")
+
+        previous_mdot = self.mdot
+        previous_flow_area = self.flow_area
+        self.mdot = branch_flowrate
+        self._update_flow_kinematics(math.pi * branch_ID**2 / 4.0)
+
+        try:
+            return self._add_syphon(
+                syphon_branch,
+                remove_flow=False,
+                initial_flowrate=initial_flowrate,
+                branch_flowrate=branch_flowrate,
+                main_area=main_area,
+                branch_radius=branch_radius,
+                branch_ID=branch_ID,
+                **kwargs,
+            )
+        except Exception:
+            self.mdot = previous_mdot
+            self._update_flow_kinematics(previous_flow_area)
+            raise
 
     def summary(self) -> dict[str, Any]:
         """Return a serializable summary of the circuit."""

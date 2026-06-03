@@ -217,10 +217,10 @@ class Bend45(CircuitElement):
         K = 0.0175 * alpha * self.f * 45 * self.r_D
         return K
 
-class syphon(CircuitElement):
+class syphon_main(CircuitElement):
     """ A T shaped intersection such that fluid is removed from flow being tracked"""
 
-    element_type = "syphon"
+    element_type = "syphon main"
 
     def __init__(
             self,
@@ -240,6 +240,12 @@ class syphon(CircuitElement):
         self.Vs = syphon_flowrate/(density*syphon_area)
         self.V1 = self.circuit.mdot/(density*self.circuit.flow_area)
 
+    def summary(self) -> dict[str, Any]:
+        summary = super().summary()
+        summary["Vs"] = self.Vs
+        summary["V1"] = self.V1
+        return summary
+
     def calc_K(self) -> float:
         V_ratio = self.Vs/self.V1 
 
@@ -254,4 +260,56 @@ class syphon(CircuitElement):
                 stacklevel=2,
             )
             K=0
+        return K
+    
+class syphon_branch(CircuitElement):
+    """A T intersection viewed from the diverted branch flow path."""
+
+    element_type = "syphon branch"
+
+    def __init__(
+            self,
+            *,
+            initial_flowrate:float,
+            branch_flowrate:float,
+            main_area:float,
+            branch_radius:float,
+            branch_ID:float,
+            **kwargs: Any
+    ) -> None:
+        super().__init__(**kwargs)
+        pressure = self.circuit.fluid.pressure
+        temperature = self.circuit.fluid.temperature
+        state = self.circuit.fluid.calculate_state(
+            pressure=pressure,
+            temperature=temperature
+        )
+        density = state["density"]
+        self.branch_flowrate =branch_flowrate
+        self.Vb = self.branch_flowrate/(density*self.circuit.flow_area) # this is the velocity in the branch that we are now tracking
+        self.V1 = initial_flowrate/(density*main_area) #this is the velocity in the segment just prior to our branch
+        self.branch_ID = branch_ID
+        self.branch_radius = branch_radius
+        self.r_D = self.branch_radius/self.branch_ID
+
+    def summary(self) -> dict[str, Any]:
+        summary = super().summary()
+        summary["Vb"] = self.Vb
+        summary["V1"] = self.V1
+        return summary
+
+    def calc_K(self) -> float:
+        if self.V1 == 0:
+            warnings.warn(
+                "syphon branch main-line velocity is zero; returning K=0",
+                RuntimeWarning,
+                stacklevel=2,
+            )
+            return 0
+
+        V_ratio = self.Vb/self.V1 
+        
+        
+        K = 0.99-0.23*(self.r_D)**0.5 - (0.82+0.29*(self.r_D)**0.5 + 0.30*self.r_D)*V_ratio + (1.02-0.64*self.r_D**0.5 + 0.76*self.r_D)*V_ratio
+        
         return K
