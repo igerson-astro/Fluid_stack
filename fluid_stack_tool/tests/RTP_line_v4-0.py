@@ -210,7 +210,7 @@ def iterator(fluid, Boost_pump_dp):
     rtp_area = 3.14 * rtp_id**2 / 4
 
     syphon = circuit.syphon_branch(
-        branch_flowrate = 1.4,
+        branch_flowrate = 1.44,
         initial_flowrate= 2,
         main_area = area_1in, 
         branch_radius =0, # worst possible case
@@ -349,7 +349,7 @@ def main():
     # Bisection bounds for the boost pump head required to hit prop inlet pressure.
     high =1e7
     low = 0
-    tank_pressure =110084.8992
+    tank_pressure =1.65/PA_TO_PSI
     #tank_pressure = .0114e6
     exit_pressure = 0
     i = 0
@@ -361,7 +361,7 @@ def main():
         # iteration so every trial starts from the same tank condition.
         JP8 = Fluid(
         name = "JP8.mix",
-        temperature = 323.15,
+        temperature = 353.15,
         pressure = tank_pressure
         )
 

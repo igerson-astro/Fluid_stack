@@ -247,19 +247,20 @@ class syphon_main(CircuitElement):
         return summary
 
     def calc_K(self) -> float:
-        V_ratio = self.Vs/self.V1 
+        V_ratio = self.Vs/self.V1 *0.5
 
-        if 0<=V_ratio and V_ratio <= 0.22:
-            K = 1.55*(0.22-V_ratio)**2-0.03
-        elif 0.22<=V_ratio and V_ratio <= 1:
-            K = 0.65 *(V_ratio-0.22)**2 - 0.03
-        else:
-            warnings.warn(
-                f"syphon velocity ratio {V_ratio} is outside the supported range [0, 1]; returning K=0",
-                RuntimeWarning,
-                stacklevel=2,
-            )
-            K=0
+        # if 0<=V_ratio and V_ratio <= 0.22:
+        #     K = 1.55*(0.22-V_ratio)**2-0.03
+        # elif 0.22<=V_ratio and V_ratio <= 1:
+        #     K = 0.65 *(V_ratio-0.22)**2 - 0.03
+        # else:
+        #     warnings.warn(
+        #         f"syphon velocity ratio {V_ratio} is outside the supported range [0, 1]; returning K=0",
+        #         RuntimeWarning,
+        #         stacklevel=2,
+        #     )
+        #     K=0
+        K= V_ratio**2
         return K
     
 class syphon_branch(CircuitElement):

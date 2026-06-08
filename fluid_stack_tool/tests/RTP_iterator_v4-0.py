@@ -24,6 +24,10 @@ def in2m(value):
     return value * 0.0254
 
 
+def m2in(value):
+    return value / 0.0254
+
+
 def in2m2(value):
     return value * 0.00064516
 
@@ -50,6 +54,7 @@ def build_pressure_tally(circuit, inlet_pressure):
                 "idx": len(pressure_tally),
                 "type": element.element_type,
                 "name": element.name,
+                "ID": getattr(element, "ID", None),
                 "pressure_drop": element.pressure_drop,
                 "inlet_pressure": inlet,
                 "outlet_pressure": outlet,
@@ -96,13 +101,7 @@ def print_major_component_tally(pressure_tally):
     print(" ")
 
 
-def print_component_tally_by_largest_dp(pressure_tally):
-    largest_rows = sorted(
-        pressure_tally,
-        key=lambda row: abs(row["pressure_drop"]),
-        reverse=True,
-    )
-
+def print_component_tally(pressure_tally):
     print("Component Pressure Tally")
     print(
         f"{'idx':<4}"
@@ -121,7 +120,7 @@ def print_component_tally_by_largest_dp(pressure_tally):
         f"{'-' * (PRESSURE_COLUMN_WIDTH - 2):<{PRESSURE_COLUMN_WIDTH}}"
     )
 
-    for row in largest_rows:
+    for row in pressure_tally:
         print(
             f"{f'{row['idx']:02d}.':<4}"
             f"{row['type']:<{TYPE_COLUMN_WIDTH}}"
@@ -134,11 +133,105 @@ def print_component_tally_by_largest_dp(pressure_tally):
     print(" ")
 
 
+def bucket_pressure_source(row):
+    if row["type"] == "tube_length":
+        diameter = row["ID"]
+        if diameter is None:
+            return "tubes unknown ID"
+        return f"tubes {format_sigfig(m2in(diameter))} in ID"
+
+    if row["type"] in {"bend_90", "bend_45"}:
+        diameter = row["ID"]
+        if diameter is None:
+            return "bends unknown ID"
+        return f"bends {format_sigfig(m2in(diameter))} in ID"
+
+    return str(row["name"] or row["type"])
+
+
+def build_dp_buckets(circuit, inlet_pressure):
+    buckets = {}
+    bucket_counts = {}
+    bucket_lengths = {}
+
+    for element in circuit.elements:
+        if element.element_type == "pump":
+            continue
+
+        row = {
+            "type": element.element_type,
+            "name": element.name,
+            "ID": getattr(element, "ID", None),
+        }
+        bucket = bucket_pressure_source(row)
+        buckets[bucket] = buckets.get(bucket, 0.0) + abs(element.pressure_drop)
+        bucket_counts[bucket] = bucket_counts.get(bucket, 0) + 1
+        if element.element_type == "tube_length":
+            bucket_lengths[bucket] = bucket_lengths.get(bucket, 0.0) + element.length
+
+    return buckets, bucket_counts, bucket_lengths
+
+
+def plot_dp_histogram(flowrate, circuit, inlet_pressure):
+    if plt is None:
+        print("matplotlib not installed; skipping dP source histogram.")
+        return
+
+    if circuit is None:
+        print("No converged component dP data available; skipping dP source histogram.")
+        return
+
+    buckets, bucket_counts, bucket_lengths = build_dp_buckets(circuit, inlet_pressure)
+    if not buckets:
+        print("No non-pump component dP data available; skipping dP source histogram.")
+        return
+
+    bucket_names = sorted(
+        buckets,
+        key=lambda bucket: buckets[bucket],
+    )
+    values = [buckets[bucket] * PA_TO_PSI for bucket in bucket_names]
+
+    plt.figure(figsize=(10, 5))
+    bars = plt.barh(bucket_names, values, color="tab:green")
+    max_value = max(values)
+    plt.xlim(0, max_value * 1.12)
+    for bar, bucket in zip(bars, bucket_names):
+        if bucket.startswith("tubes "):
+            label = f"{format_sigfig(bucket_lengths[bucket])} m"
+        else:
+            count = bucket_counts[bucket]
+            label = f"{count}x"
+        plt.text(
+            bar.get_width() + max_value * 0.015,
+            bar.get_y() + bar.get_height() / 2,
+            label,
+            va="center",
+            fontsize=13,
+        )
+
+    plt.xlabel("Pressure drop, psi", fontsize=14, fontweight="bold")
+    plt.ylabel("Pressure drop element", fontsize=14, fontweight="bold")
+    plt.title(f"RTP dP Sources at {format_sigfig(flowrate)} kg/s", fontsize=18, fontweight="bold")
+    plt.xticks(fontsize=12)
+    plt.yticks(fontsize=13)
+    plt.tight_layout()
+
+    output_path = Path(__file__).with_name("RTP_iterator_v4-0_dp_histogram.png")
+    plt.savefig(output_path, dpi=200)
+
+    if "agg" in plt.get_backend().lower():
+        print(f"dP source histogram saved to {output_path}")
+        return
+
+    plt.show()
+
+
 def iterator(fluid, pump_dp, flowrate):
     # Build one full pass through the RTP line using the current fluid
     # state as the circuit inlet condition.
 
-    OD = in2m(1)
+    OD = in2m(2)
     wt = in2m(.065)
     ID = OD - 2*wt
     area_2in = 3.14* ID**2/4
@@ -172,6 +265,12 @@ def iterator(fluid, pump_dp, flowrate):
         ID = ID,
         eps = eps,
         name = "tube_1"
+    )
+
+    LP_pump_iso_valve = circuit.orifice(
+        CdA = in2m(0.76),
+        Apt_Area = area_1in,
+        name = "LP_pump_iso-valve"
     )
 
     tube2 = circuit.tube_length(
@@ -223,7 +322,7 @@ def iterator(fluid, pump_dp, flowrate):
     )
     
     wt = in2m(0.065)
-    rtp_od = in2m(0.75)
+    rtp_od = in2m(.75)
     rtp_id = rtp_od - 2 * wt
     rtp_bend_radius = rtp_od * 3 / 2
     rtp_area = 3.14 * rtp_id**2 / 4
@@ -251,66 +350,7 @@ def iterator(fluid, pump_dp, flowrate):
         name = "bend_3"
     )
 
-    # tube7 = circuit.tube_length(
-    #     length = .1,
-    #     ID = rtp_id,
-    #     eps = eps,
-    #     name = "tube_7"
-    # )
-
-    # bend4 = circuit.bend_90(
-    #     BendRadius=rtp_bend_radius,
-    #     ID = rtp_id,
-    #     eps = eps,
-    #     name = "bend_4"
-    # )
-
-    # tube8 = circuit.tube_length(
-    #     length = .2,
-    #     ID = rtp_id,
-    #     eps = eps,
-    #     name = "tube_8"
-    # )
-
-    # Prop_iso = circuit.orifice(
-    #     CdA = in2m2(.47),
-    #     Apt_Area = rtp_area,
-    #     name = "prop_iso"
-    # )
-
-    # tube9 = circuit.tube_length(
-    #     length = .2,
-    #     ID = rtp_id,
-    #     eps = eps,
-    #     name = "tube_9"
-    # )
-
-    # Boundary_filter = circuit.orifice(
-    #     CdA = in2m2(.47),
-    #     Apt_Area = rtp_area,
-    #     name = "Boundary_filter"
-    # )
-
-    # tube10 = circuit.tube_length(
-    #     length = .1,
-    #     ID = rtp_id,
-    #     eps = eps,
-    #     name = "tube_10"
-    # )
-
-    # bend5 = circuit.bend_90(
-    #     BendRadius=rtp_bend_radius,
-    #     ID = rtp_id,
-    #     eps = eps,
-    #     name = "bend_5"
-    # )
-
-    # tube11 = circuit.tube_length(
-    #     length = .1,
-    #     ID = rtp_id,
-    #     eps = eps,
-    #     name = "tube_11"
-    # )
+    
 
     return circuit
 
@@ -327,7 +367,7 @@ def iterator_engine(tank_pressure, flowrate):
         # iteration so every trial starts from the same tank condition.
         JP8 = Fluid(
         name = "JP8.mix",
-        temperature = 323.15,
+        temperature = 353.15,
         pressure = tank_pressure
         )
 
@@ -376,11 +416,6 @@ def main():
         total_dP.append(circuit_dp)
         solved_circuits.append(circuit)
 
-
-    for i in range(len(flowrates)):
-        i
-        print(f"{flowrates[i]}:  {pump_output[i]/1e6}   ")
-
     for flowrate, circuit in zip(flowrates, solved_circuits):
         if circuit is None:
             print(" ")
@@ -390,9 +425,16 @@ def main():
 
         print(" ")
         print(f"Flowrate: {flowrate}")
-        print_component_tally_by_largest_dp(
+        print_component_tally(
             build_pressure_tally(circuit, tank_pressure)
         )
+
+    print(" ")
+    for i in range(len(flowrates)):
+        i
+        print(f"{flowrates[i]}:  {pump_output[i]/1e6}   ")
+
+    plot_dp_histogram(flowrates[-1], solved_circuits[-1], tank_pressure)
     
         
         

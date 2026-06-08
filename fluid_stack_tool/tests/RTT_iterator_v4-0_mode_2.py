@@ -226,6 +226,75 @@ def plot_dp_histogram(flowrate, circuit, inlet_pressure):
     plt.show()
 
 
+def plot_relative_stacked_dp_sources(flowrates, circuits, inlet_pressure):
+    if plt is None:
+        print("matplotlib not installed; skipping relative stacked dP plot.")
+        return
+
+    bucketed_flows = []
+    bucket_totals = {}
+
+    for circuit in circuits:
+        if circuit is None:
+            buckets = {}
+        else:
+            buckets, _, _ = build_dp_buckets(circuit, inlet_pressure)
+
+        total_dp = sum(buckets.values())
+        relative_buckets = {}
+        if total_dp > 0:
+            relative_buckets = {
+                bucket: pressure_drop * PA_TO_PSI 
+                for bucket, pressure_drop in buckets.items()
+            }
+
+        bucketed_flows.append(relative_buckets)
+        for bucket, percent_drop in relative_buckets.items():
+            bucket_totals[bucket] = bucket_totals.get(bucket, 0.0) + percent_drop
+
+    if not bucket_totals:
+        print("No converged component dP data available; skipping relative stacked dP plot.")
+        return
+
+    bucket_names = sorted(
+        bucket_totals,
+        key=lambda bucket: bucket_totals[bucket],
+        reverse=True,
+    )
+    flowrate_labels = [format_sigfig(flowrate) for flowrate in flowrates]
+    bottoms = [0.0 for _ in flowrates]
+
+    plt.figure(figsize=(12, 6))
+    for bucket in bucket_names:
+        values = [
+            bucketed_flow.get(bucket, 0.0)
+            for bucketed_flow in bucketed_flows
+        ]
+        plt.bar(flowrate_labels, values, bottom=bottoms, label=bucket)
+        bottoms = [
+            bottom + value
+            for bottom, value in zip(bottoms, values)
+        ]
+
+    #plt.ylim(0, 100)
+    plt.xlabel("Flowrate, kg/s", fontsize=14, fontweight="bold")
+    plt.ylabel("non-pump dP, %", fontsize=14, fontweight="bold")
+    plt.title("RTT Mode 2 Relative dP Sources", fontsize=18, fontweight="bold")
+    plt.xticks(fontsize=12)
+    plt.yticks(fontsize=12)
+    plt.legend(loc="upper left", bbox_to_anchor=(1.02, 1.0), fontsize=11)
+    plt.tight_layout()
+
+    output_path = Path(__file__).with_name("RTT_iterator_v4-0_mode_2_relative_stacked_dp.png")
+    plt.savefig(output_path, dpi=200)
+
+    if "agg" in plt.get_backend().lower():
+        print(f"relative stacked dP plot saved to {output_path}")
+        return
+
+    plt.show()
+
+
 def iterator(fluid,pump_dp,flowrate):
     # Build one full pass through the RTT return line using the current fluid
     # state as the circuit inlet condition.
@@ -320,13 +389,22 @@ def iterator(fluid,pump_dp,flowrate):
         eps = eps,
         name = "tube_5"
     )
+
     propulsor_flow = 1.44/2*flowrate #taken to be some fraction of the total 2kg/s flowrate across all iterations
     
     syphon = circuit.syphon_main(
-        syphon_flowrate = 0, # 0 indicates mode1, note that this is the flowrate flowing in the untracked branch
+        syphon_flowrate = propulsor_flow, # 0 indicates mode1, note that this is the flowrate flowing in the untracked branch
         syphon_area = 3.14*ID_untracked**2 /4, #.75 in^2 #note that this is the area of the untracked branch
         name = "RTT_intersection"
     )
+    # syphon = circuit.syphon_branch(
+    #     branch_flowrate = 2-propulsor_flow,
+    #     initial_flowrate = flowrate,
+    #     main_area = area_1in, 
+    #     branch_radius = 0, # worst possible case
+    #     branch_ID = ID,
+    #     name = "RTP_intersection"
+    # )
 
     bend3 = circuit.bend_90(
         BendRadius=.0762,
@@ -414,6 +492,7 @@ def main():
         print(f"{flowrates[i]}:  {pump_output[i]/1e6}   ")
 
     plot_dp_histogram(flowrates[-1], solved_circuits[-1], tank_pressure)
+    plot_relative_stacked_dp_sources(flowrates, solved_circuits, tank_pressure)
     
         
         
